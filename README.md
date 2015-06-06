@@ -124,11 +124,10 @@ With this you can run live tests by running `rspec -t live`
 
 Here is an example of setting up your RSpec (3.x) test suite to run live with the same command line switch:
 
+
 ```ruby
 # RSpec 3.x
 RSpec.configure do |c|
-  # To run tests against Stripe, using StripeMock's live switch, run this
-  # command in Terminal $ rspec -t live
   if config.filter_manager.inclusions.rules.include?(:live)
     StripeMock.toggle_live(true)
     puts "Running **live** tests against Stripe..."
