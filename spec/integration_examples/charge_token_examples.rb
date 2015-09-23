@@ -1,5 +1,6 @@
 require 'spec_helper'
 shared_examples 'Charging with Tokens' do
+
   describe "With OAuth", :oauth => true do
 
     let(:cus) do
