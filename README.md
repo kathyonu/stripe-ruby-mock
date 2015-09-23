@@ -12,7 +12,7 @@ This gem has unexpectedly grown in popularity and I've gotten pretty busy, so I'
 
 In your gemfile:
 
-    gem 'stripe-ruby-mock', '~> 2.1.1', require: 'stripe_mock'
+    gem 'stripe-ruby-mock', '~> 2.2.0', :require => 'stripe_mock'
 
 ## Features
 
@@ -341,16 +341,17 @@ Sometimes you need to check if your code reads a stripe card correctly. If so, y
 assign card data to a generated card token:
 
 ```ruby
-    it 'generates a stripe card token' do
-      card_token = StripeMock.generate_card_token(last4: '9191', exp_month: 12, exp_year: 2025)
-      cus = Stripe::Customer.create(source: card_token)
-      user = Stripe::Customer.retrieve(cus.id)
-      card = user.sources.data.first
-      expect(card.last4).to eq '9191'
-      expect(card.exp_month).to eq 12
-      expect(card.exp_year).to eq 2025
-      expect(user.sources.data.first.id).to match(/^test_cc/)
-    end
+it 'generates a stripe card token' do
+  card_token = StripeMock.generate_card_token(last4: '9191', exp_month: 12, exp_year: 2025)
+  cus = Stripe::Customer.create(source: card_token)
+
+  user = Stripe::Customer.retrieve(cus.id)
+  card = user.sources.data.first
+  expect(card.last4).to eq '9191'
+  expect(card.exp_month).to eq 12
+  expect(card.exp_year).to eq 2025
+  expect(user.sources.data.first.id).to match(/^test_cc/)
+end
 ```
 
 ## Debugging
