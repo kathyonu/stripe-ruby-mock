@@ -58,10 +58,21 @@ module StripeMock
       def update_customer(route, method_url, params, headers)
         route =~ method_url
         cus = assert_existence :customer, $1, customers[$1]
+
+        # Delete those params if their value is nil. Workaround of the problematic way Stripe serialize objects
+        params.delete(:sources) if params[:sources] && params[:sources][:data].nil?
+        params.delete(:subscriptions) if params[:subscriptions] && params[:subscriptions][:data].nil?
         cus.merge!(params)
 
-        if params[:source]
-          new_card = get_card_by_token(params.delete(:source))
+        if params[:source] 
+          if params[:source].is_a?(String)
+            new_card = get_card_by_token(params.delete(:source))
+          elsif params[:source].is_a?(Hash)
+            unless params[:source][:object] && params[:source][:number] && params[:source][:exp_month] && params[:source][:exp_year]
+              raise Stripe::InvalidRequestError.new('You must supply a valid card', nil, 400)
+            end
+            new_card = card_from_params(params.delete(:source))
+          end
           add_card_to_object(:customer, new_card, cus, true)
           cus[:default_source] = new_card[:id]
         end
