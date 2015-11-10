@@ -19,6 +19,11 @@ module StripeMock
       def get_account(route, method_url, params, headers)
         route =~ method_url
         Data.mock_account
+        # the below replaces the above
+        # assert_existence :account, $1, accounts[$1]
+        # 'Allow accounts to be created and then fetched by id'
+        # https://github.com/johanoskarsson/stripe-ruby-mock/commit/cc26fe2219a54eda2301bf6be7720179f05b5605
+        # TODO: test it
       end
 
       def update_account(route, method_url, params, headers)
