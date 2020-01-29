@@ -27,6 +27,12 @@ shared_examples 'Coupon API' do
                  expect(e.message).to match /duration/
              }
     end
+    it 'fails when a coupon is created without a currency when amount_off is specified' do
+      expect { Stripe::Coupon.create(id: '10OFF', duration: 'once', amount_off: 1000) }.to raise_error {|e|
+        expect(e).to be_a(Stripe::InvalidRequestError)
+        expect(e.message).to match /You must pass currency when passing amount_off/
+      }
+    end
   end
 
   context 'retrieve coupon', live: true do
@@ -47,7 +53,7 @@ shared_examples 'Coupon API' do
       coupon1
       coupon2
 
-      all = Stripe::Coupon.all
+      all = Stripe::Coupon.list
 
       expect(all.count).to eq(2)
       expect(all.map &:id).to include('10BUCKS', '11BUCKS')
@@ -56,7 +62,7 @@ shared_examples 'Coupon API' do
     it "cannot retrieve a stripe coupon that doesn't exist" do
       expect { Stripe::Coupon.retrieve('nope') }.to raise_error {|e|
         expect(e).to be_a Stripe::InvalidRequestError
-        expect(e.param).to eq('id')
+        expect(e.param).to eq('coupon')
         expect(e.http_status).to eq(404)
       }
     end
@@ -71,7 +77,7 @@ shared_examples 'Coupon API' do
 
       expect { Stripe::Coupon.retrieve(coupon.id) }.to raise_error {|e|
         expect(e).to be_a Stripe::InvalidRequestError
-        expect(e.param).to eq('id')
+        expect(e.param).to eq('coupon')
         expect(e.http_status).to eq(404)
       }
     end

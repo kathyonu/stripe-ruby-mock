@@ -6,13 +6,14 @@ def expect_card_error(code, param)
     expect(e.http_status).to eq(402)
     expect(e.code).to eq(code)
     expect(e.param).to eq(param)
+    expect(e.http_body).to eq(e.json_body.to_json)
   }
 end
 
 shared_examples 'Stripe Error Mocking' do
 
   it "mocks a manually given stripe card error" do
-    error = Stripe::CardError.new('Test Msg', 'param_name', 'bad_code', 444, 'body', 'json body')
+    error = Stripe::CardError.new('Test Msg', 'param_name', code: 'bad_code', http_status: 444, http_body: 'body', json_body: {})
     StripeMock.prepare_error(error)
 
     expect { Stripe::Customer.create() }.to raise_error {|e|
@@ -23,14 +24,14 @@ shared_examples 'Stripe Error Mocking' do
 
       expect(e.http_status).to eq(444)
       expect(e.http_body).to eq('body')
-      expect(e.json_body).to eq('json body')
+      expect(e.json_body).to eq({})
     }
   end
 
 
   it "mocks a manually gives stripe invalid request error" do
 
-    error = Stripe::InvalidRequestError.new('Test Invalid', 'param', 987, 'ibody', 'json ibody')
+    error = Stripe::InvalidRequestError.new('Test Invalid', 'param', http_status: 987, http_body: 'ibody', json_body: {})
     StripeMock.prepare_error(error)
 
     expect { Stripe::Charge.create(amount: 1, currency: 'usd') }.to raise_error {|e|
@@ -40,22 +41,22 @@ shared_examples 'Stripe Error Mocking' do
 
       expect(e.http_status).to eq(987)
       expect(e.http_body).to eq('ibody')
-      expect(e.json_body).to eq('json ibody')
+      expect(e.json_body).to eq({})
     }
   end
 
 
   it "mocks a manually gives stripe invalid auth error" do
-    error = Stripe::AuthenticationError.new('Bad Auth', 499, 'abody', 'json abody')
+    error = Stripe::AuthenticationError.new('Bad Auth', http_status: 499, http_body: 'abody', json_body: {})
     StripeMock.prepare_error(error)
 
-    expect { stripe_helper.create_plan() }.to raise_error {|e|
+    expect { stripe_helper.create_plan(id: "test_plan") }.to raise_error {|e|
       expect(e).to be_a(Stripe::AuthenticationError)
       expect(e.message).to eq('Bad Auth')
 
       expect(e.http_status).to eq(499)
       expect(e.http_body).to eq('abody')
-      expect(e.json_body).to eq('json abody')
+      expect(e.json_body).to eq({})
     }
   end
 
@@ -64,7 +65,10 @@ shared_examples 'Stripe Error Mocking' do
     custom_error = StandardError.new("Please knock first.")
     StripeMock.prepare_error(custom_error, :new_customer)
 
-    expect { Stripe::Charge.create(amount: 1, currency: 'usd') }.to_not raise_error
+    expect {
+      Stripe::Charge.create(amount: 1, currency: 'usd', source: stripe_helper.generate_card_token)
+    }.to_not raise_error
+
     expect { Stripe::Customer.create }.to raise_error {|e|
       expect(e).to be_a StandardError
       expect(e.message).to eq("Please knock first.")
@@ -89,7 +93,9 @@ shared_examples 'Stripe Error Mocking' do
 
   it "mocks a card error with a given handler" do
     StripeMock.prepare_card_error(:incorrect_cvc, :new_customer)
-    expect { Stripe::Charge.create(amount: 1, currency: 'usd') }.to_not raise_error
+    expect {
+      Stripe::Charge.create(amount: 1, currency: 'usd', source: stripe_helper.generate_card_token)
+    }.to_not raise_error
 
     expect { Stripe::Customer.create() }.to raise_error {|e|
       expect(e).to be_a(Stripe::CardError)
@@ -147,6 +153,11 @@ shared_examples 'Stripe Error Mocking' do
   it "mocks a processing error card error" do
     StripeMock.prepare_card_error(:processing_error)
     expect_card_error 'processing_error', nil
+  end
+
+  it "mocks an incorrect zip code card error" do
+    StripeMock.prepare_card_error(:incorrect_zip)
+    expect_card_error 'incorrect_zip', 'address_zip'
   end
 
 end

@@ -13,13 +13,13 @@ describe StripeMock::Instance do
   after { StripeMock.stop }
 
   it "handles both string and symbol hash keys" do
-    string_params = stripe_helper.create_plan_params(
-      "id" => "str_abcde",
-      :name => "String Plan"
+    symbol_params = stripe_helper.create_product_params(
+      :name => "Symbol Product",
+      "type" => "service"
     )
-    res, api_key = StripeMock.instance.mock_request('post', '/v1/plans', 'api_key', string_params)
-    expect(res[:id]).to eq('str_abcde')
-    expect(res[:name]).to eq('String Plan')
+    res, api_key = StripeMock.instance.mock_request('post', '/v1/products', api_key: 'api_key', params: symbol_params)
+    expect(res.data[:name]).to eq('Symbol Product')
+    expect(res.data[:type]).to eq('service')
   end
 
   it "exits gracefully on an unrecognized handler url" do
@@ -28,7 +28,7 @@ describe StripeMock::Instance do
       "name" => "PLAN"
     }
 
-    expect { res, api_key = StripeMock.instance.mock_request('post', '/v1/unrecongnized_method', 'api_key', dummy_params) }.to_not raise_error
+    expect { res, api_key = StripeMock.instance.mock_request('post', '/v1/unrecongnized_method', api_key: 'api_key', params: dummy_params) }.to_not raise_error
   end
 
   it "can toggle debug" do
@@ -46,5 +46,55 @@ describe StripeMock::Instance do
 
     StripeMock.start
     expect(StripeMock.instance.debug).to eq(false)
+  end
+
+  it "can set a conversion rate" do
+    StripeMock.set_conversion_rate(1.25)
+    expect(StripeMock.instance.conversion_rate).to eq(1.25)
+  end
+
+  it "allows non-usd default currency" do
+    old_default_currency = StripeMock.default_currency
+    customer = begin
+      StripeMock.default_currency = "jpy"
+      Stripe::Customer.create({
+        email: 'johnny@appleseed.com',
+        source: stripe_helper.generate_card_token
+      })
+    ensure
+      StripeMock.default_currency = old_default_currency
+    end
+    expect(customer.currency).to eq("jpy")
+  end
+
+  context 'when creating sources with metadata' do
+    let(:customer) { Stripe::Customer.create(email: 'test@email.com') }
+    let(:metadata) { { test_key: 'test_value' } }
+
+    context 'for credit card' do
+      let(:credit_card) do
+        customer.sources.create(
+          source: stripe_helper.generate_card_token,
+          metadata: metadata
+        )
+      end
+
+      it('should save metadata') do
+        expect(credit_card.metadata.test_key).to eq metadata[:test_key]
+      end
+    end
+
+    context 'for bank account' do
+      let(:bank_account) do
+        customer.sources.create(
+          source: stripe_helper.generate_bank_token,
+          metadata: metadata
+        )
+      end
+
+      it('should save metadata') do
+        expect(bank_account.metadata.test_key).to eq metadata[:test_key]
+      end
+    end
   end
 end

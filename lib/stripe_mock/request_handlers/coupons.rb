@@ -11,18 +11,19 @@ module StripeMock
 
       def new_coupon(route, method_url, params, headers)
         params[:id] ||= new_id('coupon')
-        raise Stripe::InvalidRequestError.new('Missing required param: duration', 'coupon', 400) unless params[:duration]
-        coupons[ params[:id] ] = Data.mock_coupon(params)
+        raise Stripe::InvalidRequestError.new('Missing required param: duration', 'coupon', http_status: 400) unless params[:duration]
+        raise Stripe::InvalidRequestError.new('You must pass currency when passing amount_off', 'coupon', http_status: 400) if params[:amount_off] && !params[:currency]
+        coupons[ params[:id] ] = Data.mock_coupon({amount_off: nil, percent_off:nil}.merge(params))
       end
 
       def get_coupon(route, method_url, params, headers)
         route =~ method_url
-        assert_existence :id, $1, coupons[$1]
+        assert_existence :coupon, $1, coupons[$1]
       end
 
       def delete_coupon(route, method_url, params, headers)
         route =~ method_url
-        assert_existence :id, $1, coupons.delete($1)
+        assert_existence :coupon, $1, coupons.delete($1)
       end
 
       def list_coupons(route, method_url, params, headers)

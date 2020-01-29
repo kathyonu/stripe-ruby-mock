@@ -1,6 +1,8 @@
 require "spec_helper"
 
 describe StripeMock::Data::List do
+  let(:stripe_helper) { StripeMock.create_test_helper }
+
   before :all do
     StripeMock.start
   end
@@ -32,16 +34,30 @@ describe StripeMock::Data::List do
     expect(list.url).to eq("/v1/customers")
   end
 
+  it "returns in descending order if created available" do
+    charge_newer = Stripe::Charge.create(amount: 1, currency: 'usd', source: stripe_helper.generate_card_token, created: 5)
+    charge_older = Stripe::Charge.create(amount: 1, currency: 'usd', source: stripe_helper.generate_card_token, created: 4)
+    list = StripeMock::Data::List.new([charge_older, charge_newer])
+    hash = list.to_h
+
+    expect(hash).to eq(
+      object: "list",
+      data: [charge_newer, charge_older],
+      url: "/v1/charges",
+      has_more: false
+    )
+  end
+
   it "eventually gets turned into a hash" do
-    charge1 = Stripe::Charge.create(amount: 1, currency: 'usd')
-    charge2 = Stripe::Charge.create(amount: 1, currency: 'usd')
-    charge3 = Stripe::Charge.create(amount: 1, currency: 'usd')
+    charge1 = Stripe::Charge.create(amount: 1, currency: 'usd', source: stripe_helper.generate_card_token)
+    charge2 = Stripe::Charge.create(amount: 1, currency: 'usd', source: stripe_helper.generate_card_token)
+    charge3 = Stripe::Charge.create(amount: 1, currency: 'usd', source: stripe_helper.generate_card_token)
     list = StripeMock::Data::List.new([charge1, charge2, charge3])
     hash = list.to_h
 
     expect(hash).to eq(
       object: "list",
-      data: [charge1, charge2, charge3],
+      data: [charge3, charge2, charge1],
       url: "/v1/charges",
       has_more: false
     )
@@ -93,28 +109,44 @@ describe StripeMock::Data::List do
     end
   end
 
+  context "active filter" do
+    it "accepts an active param which filters out data accordingly" do
+      product = Stripe::Product.create(id: "prod_123", name: "My Beautiful Product", type: "service")
+
+      plan_attributes = { product: product.id, interval: "month", currency: "usd", amount: 500 }
+      plan_a = Stripe::Plan.create(plan_attributes)
+      plan_b = Stripe::Plan.create(**plan_attributes, active: false)
+
+      list = StripeMock::Data::List.new([plan_a, plan_b], active: true)
+
+      expect(list.active).to eq(true)
+      expect(list.to_h[:data].count).to eq(1)
+    end
+  end
+
   context "pagination" do
     it "has a has_more field when it has more" do
-      list = StripeMock::Data::List.new([Stripe::Charge.create(amount: 1, currency: 'usd')] * 256)
+      list = StripeMock::Data::List.new(
+        [Stripe::Charge.create(amount: 1, currency: 'usd', source: stripe_helper.generate_card_token)] * 256
+      )
 
       expect(list).to have_more
     end
 
     it "accepts a starting_after parameter" do
       data = []
-      255.times { data << Stripe::Charge.create(amount: 1, currency: 'usd') }
-      new_charge = Stripe::Charge.create(amount: 1, currency: 'usd')
+      255.times { data << Stripe::Charge.create(amount: 1, currency: 'usd', source: stripe_helper.generate_card_token) }
+      new_charge = Stripe::Charge.create(amount: 1, currency: 'usd', source: stripe_helper.generate_card_token)
       data[89] = new_charge
       list = StripeMock::Data::List.new(data, starting_after: new_charge.id)
       hash = list.to_h
-
       expect(hash[:data].size).to eq(10)
-      expect(hash[:data]).to eq(data[90, 10])
+      expect(hash[:data]).to eq(data[79, 10].reverse)
     end
 
     it "raises an error if starting_after cursor is not found" do
       data = []
-      255.times { data << Stripe::Charge.create(amount: 1, currency: 'usd') }
+      255.times { data << Stripe::Charge.create(amount: 1, currency: 'usd', source: stripe_helper.generate_card_token) }
       list = StripeMock::Data::List.new(data, starting_after: "test_ch_unknown")
 
       expect { list.to_h }.to raise_error

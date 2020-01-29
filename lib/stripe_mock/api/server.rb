@@ -1,5 +1,4 @@
 module StripeMock
-
   @default_server_pid_path = './stripe-mock-server.pid'
   @default_server_log_path = './stripe-mock-server.log'
 
@@ -21,7 +20,14 @@ module StripeMock
       ){
         StripeMock::Server.start_new(opts)
       }
-      at_exit { kill_server(pid_path) }
+      at_exit {
+        begin
+          e = $! # last exception
+          kill_server(pid_path)
+        ensure
+          raise e if $! != e
+        end
+      }
     end
 
     def kill_server(pid_path=nil)

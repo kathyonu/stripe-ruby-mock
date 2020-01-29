@@ -8,29 +8,57 @@ module StripeMock
         klass.add_handler 'get /v1/charges/(.*)',           :get_charge
         klass.add_handler 'post /v1/charges/(.*)/capture',  :capture_charge
         klass.add_handler 'post /v1/charges/(.*)/refund',   :refund_charge
-        klass.add_handler 'post /v1/charges/(.*)/refunds',  :create_refund
+        klass.add_handler 'post /v1/charges/(.*)/refunds',  :refund_charge
         klass.add_handler 'post /v1/charges/(.*)',          :update_charge
       end
 
       def new_charge(route, method_url, params, headers)
+        if headers && headers[:idempotency_key]
+          params[:idempotency_key] = headers[:idempotency_key]
+          if charges.any?
+            original_charge = charges.values.find { |c| c[:idempotency_key] == headers[:idempotency_key]}
+            return charges[original_charge[:id]] if original_charge
+          end
+        end
+
         id = new_id('ch')
 
-        if params[:source] && params[:source].is_a?(String)
-          # if a customer is provided, the card parameter is assumed to be the actual
-          # card id, not a token. in this case we'll find the card in the customer
-          # object and return that.
-          if params[:customer]
-            params[:source] = get_card(customers[params[:customer]], params[:source])
-          else
-            params[:source] = get_card_by_token(params[:source])
+        if params[:source]
+          if params[:source].is_a?(String)
+            # if a customer is provided, the card parameter is assumed to be the actual
+            # card id, not a token. in this case we'll find the card in the customer
+            # object and return that.
+            if params[:customer]
+              params[:source] = get_card(customers[params[:customer]], params[:source])
+            else
+              params[:source] = get_card_or_bank_by_token(params[:source])
+            end
+          elsif params[:source][:id]
+            raise Stripe::InvalidRequestError.new("Invalid token id: #{params[:source]}", 'card', http_status: 400)
           end
-        elsif params[:source] && params[:source][:id]
-          raise Stripe::InvalidRequestError.new("Invalid token id: #{params[:card]}", 'card', 400)
+        elsif params[:customer]
+          customer = customers[params[:customer]]
+          if customer && customer[:default_source]
+            params[:source] = get_card(customer, customer[:default_source])
+          end
         end
 
         ensure_required_params(params)
+        bal_trans_params = { amount: params[:amount], source: id, application_fee: params[:application_fee] }
 
-        charges[id] = Data.mock_charge(params.merge :id => id, :balance_transaction => new_balance_transaction('txn'))
+        balance_transaction_id = new_balance_transaction('txn', bal_trans_params)
+
+        charges[id] = Data.mock_charge(
+            params.merge :id => id,
+            :balance_transaction => balance_transaction_id)
+
+        charge = charges[id].clone
+        if params[:expand] == ['balance_transaction']
+          charge[:balance_transaction] =
+            balance_transactions[balance_transaction_id]
+        end
+
+        charge
       end
 
       def update_charge(route, method_url, params, headers)
@@ -41,10 +69,10 @@ module StripeMock
         allowed = allowed_params(params)
         disallowed = params.keys - allowed
         if disallowed.count > 0
-          raise Stripe::InvalidRequestError.new("Received unknown parameters: #{disallowed.join(', ')}" , '', 400)
+          raise Stripe::InvalidRequestError.new("Received unknown parameters: #{disallowed.join(', ')}" , '', http_status: 400)
         end
 
-        charges[id] = charge.merge(params)
+        charges[id] = Util.rmerge(charge, params)
       end
 
       def get_charges(route, method_url, params, headers)
@@ -62,7 +90,16 @@ module StripeMock
 
       def get_charge(route, method_url, params, headers)
         route =~ method_url
-        assert_existence :charge, $1, charges[$1]
+        charge_id = $1 || params[:charge]
+        charge = assert_existence :charge, charge_id, charges[charge_id]
+
+        charge = charge.clone
+        if params[:expand] == ['balance_transaction']
+          balance_transaction = balance_transactions[charge[:balance_transaction]]
+          charge[:balance_transaction] = balance_transaction
+        end
+
+        charge
       end
 
       def capture_charge(route, method_url, params, headers)
@@ -78,6 +115,10 @@ module StripeMock
           add_refund_to_charge(refund, charge)
         end
 
+        if params[:application_fee]
+          charge[:application_fee] = params[:application_fee]
+        end
+
         charge[:captured] = true
         charge
       end
@@ -85,24 +126,12 @@ module StripeMock
       def refund_charge(route, method_url, params, headers)
         charge = get_charge(route, method_url, params, headers)
 
-        refund = Data.mock_refund params.merge(
-          :balance_transaction => new_balance_transaction('txn'),
-          :id => new_id('re')
+        new_refund(
+          route,
+          method_url,
+          params.merge(:charge => charge[:id]),
+          headers
         )
-        add_refund_to_charge(refund, charge)
-        charge
-      end
-
-      def create_refund(route, method_url, params, headers)
-        charge = get_charge(route, method_url, params, headers)
-
-        refund = Data.mock_refund params.merge(
-          :balance_transaction => new_balance_transaction('txn'),
-          :id => new_id('re'),
-          :charge => charge[:id]
-        )
-        add_refund_to_charge(refund, charge)
-        refund
       end
 
       private
@@ -113,9 +142,11 @@ module StripeMock
         elsif params[:currency].nil?
           require_param(:currency)
         elsif non_integer_charge_amount?(params)
-          raise Stripe::InvalidRequestError.new("Invalid integer: #{params[:amount]}", 'amount', 400)
+          raise Stripe::InvalidRequestError.new("Invalid integer: #{params[:amount]}", 'amount', http_status: 400)
         elsif non_positive_charge_amount?(params)
-          raise Stripe::InvalidRequestError.new('Invalid positive integer', 'amount', 400)
+          raise Stripe::InvalidRequestError.new('Invalid positive integer', 'amount', http_status: 400)
+        elsif params[:source].nil? && params[:customer].nil?
+          raise Stripe::InvalidRequestError.new('Must provide source or customer.', http_status: nil)
         end
       end
 
@@ -127,12 +158,8 @@ module StripeMock
         params[:amount] && params[:amount] < 1
       end
 
-      def require_param(param)
-        raise Stripe::InvalidRequestError.new("Missing required param: #{param}", param.to_s, 400)
-      end
-
       def allowed_params(params)
-        allowed = [:description, :metadata, :receipt_email, :fraud_details, :shipping]
+        allowed = [:description, :metadata, :receipt_email, :fraud_details, :shipping, :destination]
 
         # This is a workaround for the way the Stripe API sends params even when they aren't modified.
         # Stipe will include those params even when they aren't modified.
@@ -142,6 +169,8 @@ module StripeMock
            params[:refunds].has_key?(:data) && params[:refunds][:data].nil?)
           allowed << :refunds
         end
+
+        allowed
       end
     end
   end

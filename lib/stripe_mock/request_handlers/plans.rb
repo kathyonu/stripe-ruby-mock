@@ -11,6 +11,7 @@ module StripeMock
       end
 
       def new_plan(route, method_url, params, headers)
+        params[:id] ||= new_id('plan')
         validate_create_plan_params(params)
         plans[ params[:id] ] = Data.mock_plan(params)
       end
@@ -32,7 +33,8 @@ module StripeMock
       end
 
       def list_plans(route, method_url, params, headers)
-        Data.mock_list_object(plans.values)
+        limit = params[:limit] ? params[:limit] : 10
+        Data.mock_list_object(plans.values.first(limit), params.merge!(limit: limit))
       end
 
     end

@@ -21,8 +21,14 @@ shared_examples 'Card API' do
     expect(card.exp_year).to eq(2099)
   end
 
-  it 'creates/returns a card when using recipient.cards.create given a card token' do
-    recipient = Stripe::Recipient.create(id: 'test_recipient_sub')
+  it 'creates/returns a card when using recipient.cards.create given a card token', skip: 'Stripe has deprecated Recipients' do
+    params = {
+      id: 'test_recipient_sub',
+      name: 'MyRec',
+      type: 'individual'
+    }
+
+    recipient = Stripe::Recipient.create(params)
     card_token = stripe_helper.generate_card_token(last4: "1123", exp_month: 11, exp_year: 2099)
     card = recipient.cards.create(card: card_token)
 
@@ -63,8 +69,13 @@ shared_examples 'Card API' do
     expect(card.exp_year).to eq(3031)
   end
 
-  it 'creates/returns a card when using recipient.cards.create given card params' do
-    recipient = Stripe::Recipient.create(id: 'test_recipient_sub')
+  it 'creates/returns a card when using recipient.cards.create given card params', skip: 'Stripe has deprecated Recipients' do
+    params = {
+      id: 'test_recipient_sub',
+      name: 'MyRec',
+      type: 'individual'
+    }
+    recipient = Stripe::Recipient.create(params)
     card = recipient.cards.create(card: {
       number: '4000056655665556',
       exp_month: '11',
@@ -123,7 +134,7 @@ shared_examples 'Card API' do
     let!(:card) { customer.sources.create(source: card_token) }
 
     it "can retrieve all customer's cards" do
-      retrieved = customer.sources.all
+      retrieved = customer.sources.list
       expect(retrieved.count).to eq(1)
     end
 
@@ -155,6 +166,13 @@ shared_examples 'Card API' do
       expect(retrieved_cus.default_source).to be_nil
     end
 
+    it 'updates total_count if deleted' do
+      card.delete
+      sources = Stripe::Customer.retrieve(customer.id).sources
+
+      expect(sources.total_count).to eq 0
+    end
+
     context "deletion when the user has two cards" do
       let!(:card_token_2) { stripe_helper.generate_card_token(last4: "1123", exp_month: 11, exp_year: 2099) }
       let!(:card_2) { customer.sources.create(source: card_token_2) }
@@ -174,13 +192,13 @@ shared_examples 'Card API' do
     end
   end
 
-  describe "retrieval and deletion with recipients", :live => true do
+  describe "retrieval and deletion with recipients", :live => true, skip: 'Stripe has deprecated Recipients' do
     let!(:recipient) { Stripe::Recipient.create(name: 'Test Recipient', type: 'individual') }
     let!(:card_token) { stripe_helper.generate_card_token(number: "4000056655665556") }
     let!(:card) { recipient.cards.create(card: card_token) }
 
     it "can retrieve all recipient's cards" do
-      retrieved = recipient.cards.all
+      retrieved = recipient.cards.list
       expect(retrieved.count).to eq(1)
     end
 
@@ -261,7 +279,7 @@ shared_examples 'Card API' do
 
       customer = Stripe::Customer.retrieve('test_customer_card')
 
-      list = customer.sources.all
+      list = customer.sources.list
 
       expect(list.object).to eq("list")
       expect(list.count).to eq(2)
@@ -278,7 +296,7 @@ shared_examples 'Card API' do
       Stripe::Customer.create(id: 'no_cards')
       customer = Stripe::Customer.retrieve('no_cards')
 
-      list = customer.sources.all
+      list = customer.sources.list
 
       expect(list.object).to eq("list")
       expect(list.count).to eq(0)

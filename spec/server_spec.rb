@@ -19,12 +19,13 @@ describe 'StripeMock Server', :mock_server => true do
 
   after { StripeMock.stop_client(:clear_server_data => true) }
 
+  let(:product) { stripe_helper.create_product }
 
   it "uses an RPC client for mock requests" do
     charge = Stripe::Charge.create(
       amount: 987,
       currency: 'USD',
-      card: stripe_helper.generate_card_token,
+      source: stripe_helper.generate_card_token,
       description: 'card charge'
     )
     expect(charge.amount).to eq(987)
@@ -51,9 +52,9 @@ describe 'StripeMock Server', :mock_server => true do
 
 
   it "returns a response with symbolized hash keys" do
-    stripe_helper.create_plan(id: 'x')
-    response, api_key = StripeMock.redirect_to_mock_server('get', '/v1/plans/x', 'xxx')
-    response.keys.each {|k| expect(k).to be_a(Symbol) }
+    stripe_helper.create_plan(id: 'x', product: product.id)
+    response, api_key = StripeMock.redirect_to_mock_server('get', '/v1/plans/x', api_key: 'xxx')
+    response.data.keys.each {|k| expect(k).to be_a(Symbol) }
   end
 
 
@@ -128,8 +129,12 @@ describe 'StripeMock Server', :mock_server => true do
       # We should never get here
       expect(false).to eq(true)
     rescue StripeMock::ServerTimeoutError => e
-      expect(e.associated_error).to be_a(Errno::ECONNREFUSED)
+      expect(e).to be_a StripeMock::ServerTimeoutError
     end
   end
 
+  it "can set a conversion rate" do
+    StripeMock.set_conversion_rate(1.2)
+    expect(StripeMock.client.get_conversion_rate).to eq(1.2)
+  end
 end
